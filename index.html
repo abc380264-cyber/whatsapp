@@ -466,10 +466,9 @@ const sb=document.getElementById('sbtn');
 let holdTimer=null,holding=false;
 
 sb.addEventListener('click',e=>{
-  if(holding)return; // ignore click after hold
+  if(holding)return;
   const v=document.getElementById('ti').value.trim();
   if(v)sendTxt();
-  // if no text and not holding, do nothing (handled by hold events)
 });
 
 function startHold(){
@@ -486,8 +485,18 @@ function endHold(){
 sb.addEventListener('mousedown',startHold);
 sb.addEventListener('mouseup',endHold);
 sb.addEventListener('mouseleave',()=>{if(recOn)stopRec();holding=false;clearTimeout(holdTimer);});
-sb.addEventListener('touchstart',e=>{e.preventDefault();startHold();},{passive:false});
-sb.addEventListener('touchend',e=>{e.preventDefault();endHold();},{passive:false});
+
+// Mobile touch — if text exists send immediately, else hold to record
+sb.addEventListener('touchstart',e=>{
+  const v=document.getElementById('ti').value.trim();
+  if(v){e.preventDefault();sendTxt();return;} // ← FIX: send text on tap
+  e.preventDefault();startHold();
+},{passive:false});
+sb.addEventListener('touchend',e=>{
+  e.preventDefault();
+  clearTimeout(holdTimer);
+  if(holding){holding=false;stopRec();}
+},{passive:false});
 
 // ── TOAST WAVE ──
 function buildTW(){
