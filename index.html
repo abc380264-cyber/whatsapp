@@ -275,8 +275,14 @@ body{display:flex;flex-direction:column}
     <input id="ti" type="text" placeholder="Message Aria..." autocomplete="off"
       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendTxt()}"
       oninput="updBtn()"/>
+    <!-- send arrow shown only when text is typed -->
+    <button id="arrowbtn" onclick="sendTxt()" style="
+      display:none;background:none;border:none;cursor:pointer;
+      color:var(--green);font-size:22px;padding:6px 8px;line-height:1;flex-shrink:0;
+    ">➤</button>
   </div>
-  <button id="sbtn" title="Send or hold to record">🎙️</button>
+  <!-- mic button always visible, hold to record -->
+  <button id="sbtn" title="Hold to record voice">🎙️</button>
 </div>
 
 <!-- REC TOAST -->
@@ -442,17 +448,20 @@ function showT(on){
 
 // ── TEXT SEND ──
 function updBtn(){
-  const sb=document.getElementById('sbtn');
   const v=document.getElementById('ti').value.trim();
-  sb.textContent=v?'➤':'🎙️';
-  sb.style.background=v?'var(--green)':'var(--green)';
+  // show arrow inside input when text typed, hide mic glow
+  document.getElementById('arrowbtn').style.display=v?'flex':'none';
+  const sb=document.getElementById('sbtn');
+  sb.style.background=v?'rgba(37,211,102,0.35)':'var(--green)';
 }
 
 async function sendTxt(){
   const el=document.getElementById('ti');
   const txt=el.value.trim();
   if(!txt)return;
-  el.value='';updBtn();
+  el.value='';
+  document.getElementById('arrowbtn').style.display='none';
+  document.getElementById('sbtn').style.background='var(--green)';
   addMsg('user','text',txt);
   showT(true);
   try{
@@ -461,42 +470,28 @@ async function sendTxt(){
   }catch{showT(false);}
 }
 
-// ── SEND BUTTON: click=send text, hold=record ──
+// ── MIC BUTTON: hold to record, release to send ──
 const sb=document.getElementById('sbtn');
 let holdTimer=null,holding=false;
 
-sb.addEventListener('click',e=>{
-  if(holding)return;
-  const v=document.getElementById('ti').value.trim();
-  if(v)sendTxt();
-});
-
 function startHold(){
-  const v=document.getElementById('ti').value.trim();
-  if(v)return; // if text typed, don't start recording
   holding=false;
-  holdTimer=setTimeout(()=>{holding=true;startRec();},150);
+  holdTimer=setTimeout(()=>{holding=true;startRec();},200);
 }
 function endHold(){
   clearTimeout(holdTimer);
   if(holding){holding=false;stopRec();}
+  else holding=false;
 }
 
-sb.addEventListener('mousedown',startHold);
-sb.addEventListener('mouseup',endHold);
-sb.addEventListener('mouseleave',()=>{if(recOn)stopRec();holding=false;clearTimeout(holdTimer);});
+// Desktop
+sb.addEventListener('mousedown',e=>{e.preventDefault();startHold();});
+sb.addEventListener('mouseup',e=>{e.preventDefault();endHold();});
+sb.addEventListener('mouseleave',()=>{if(recOn){stopRec();}holding=false;clearTimeout(holdTimer);});
 
-// Mobile touch — if text exists send immediately, else hold to record
-sb.addEventListener('touchstart',e=>{
-  const v=document.getElementById('ti').value.trim();
-  if(v){e.preventDefault();sendTxt();return;} // ← FIX: send text on tap
-  e.preventDefault();startHold();
-},{passive:false});
-sb.addEventListener('touchend',e=>{
-  e.preventDefault();
-  clearTimeout(holdTimer);
-  if(holding){holding=false;stopRec();}
-},{passive:false});
+// Mobile — purely hold-to-record, no text send here (arrow button handles that)
+sb.addEventListener('touchstart',e=>{e.preventDefault();startHold();},{passive:false});
+sb.addEventListener('touchend',e=>{e.preventDefault();endHold();},{passive:false});
 
 // ── TOAST WAVE ──
 function buildTW(){
@@ -541,6 +536,20 @@ async function stopRec(){
 
 // ── CALLS ──
 function call(type){
+  // Request mic permission first — fixes computer call issue
+  navigator.mediaDevices.getUserMedia({audio:true})
+    .then(stream=>{
+      // stop the test stream immediately, we just needed permission
+      stream.getTracks().forEach(t=>t.stop());
+      launchCall(type);
+    })
+    .catch(()=>{
+      // permission denied or not available — try anyway
+      launchCall(type);
+    });
+}
+
+function launchCall(type){
   callTyp=type;callOn=true;aiSpk=false;callSecs=0;
   muted=false;spkOff=false;camOff=false;
   document.getElementById('callscr').classList.add('on');
