@@ -536,64 +536,97 @@ async function stopRec(){
 
 // ── CALLS ──
 function call(type){
-  // Request mic permission first — fixes computer call issue
-  navigator.mediaDevices.getUserMedia({audio:true})
-    .then(stream=>{
-      // stop the test stream immediately, we just needed permission
-      stream.getTracks().forEach(t=>t.stop());
-      launchCall(type);
-    })
-    .catch(()=>{
-      // permission denied or not available — try anyway
-      launchCall(type);
-    });
-}
-
-function launchCall(type){
   callTyp=type;callOn=true;aiSpk=false;callSecs=0;
   muted=false;spkOff=false;camOff=false;
   document.getElementById('callscr').classList.add('on');
-  document.getElementById('cst').textContent='Calling...';
-  document.getElementById('ccap').innerHTML='<span style="color:var(--sub);font-size:13px">Connecting...</span>';
+  document.getElementById('cst').textContent='Connecting...';
   document.getElementById('r1').classList.remove('p');
   document.getElementById('r2').classList.remove('p');
   document.getElementById('bm').textContent='🎙️';document.getElementById('bm').classList.remove('tog');
   document.getElementById('bs').textContent='🔊';document.getElementById('bs').classList.remove('tog');
+  document.getElementById('camw').style.display=type==='video'?'flex':'none';
+  document.getElementById('cvid').style.display='none';
 
-  if(type==='video'){
-    document.getElementById('camw').style.display='flex';
-    navigator.mediaDevices.getUserMedia({video:true,audio:false})
-      .then(s=>{vStream=s;const v=document.getElementById('cvid');v.srcObject=s;v.style.display='block';})
-      .catch(()=>{});
-  }else{
-    document.getElementById('camw').style.display='none';
-    document.getElementById('cvid').style.display='none';
-  }
+  document.getElementById('ccap').innerHTML=`
+    <div style="text-align:center;padding:0 10px">
+      <div style="font-size:30px;margin-bottom:8px">🎙️</div>
+      <div style="color:#fff;font-size:14px;font-weight:700;margin-bottom:5px">Allow Microphone</div>
+      <div style="color:var(--sub);font-size:12px;line-height:1.7">
+        A popup will appear at top of browser<br>Click <b style="color:var(--green)">Allow</b> to start the call
+      </div>
+    </div>`;
 
-  setTimeout(()=>{
-    if(!callOn)return;
-    document.getElementById('cst').textContent='00:00';
-    callTmr=setInterval(()=>{
-      callSecs++;
-      const mm=String(Math.floor(callSecs/60)).padStart(2,'0');
-      const ss=String(callSecs%60).padStart(2,'0');
-      if(callOn)document.getElementById('cst').textContent=mm+':'+ss;
-    },1000);
-    document.getElementById('ccap').innerHTML='<span style="color:var(--sub);font-size:13px">Say something...</span>';
-    setTimeout(cListen,700);
-  },2000);
+  navigator.mediaDevices.getUserMedia({audio:true, video:type==='video'})
+    .then(stream=>{
+      if(type==='video'){
+        vStream=stream;
+        const v=document.getElementById('cvid');
+        v.srcObject=stream;v.style.display='block';
+      } else {
+        stream.getTracks().forEach(t=>t.stop());
+      }
+      document.getElementById('cst').textContent='00:00';
+      document.getElementById('ccap').innerHTML='<span style="color:var(--green);font-size:13px">✅ Say something...</span>';
+      callTmr=setInterval(()=>{
+        callSecs++;
+        const mm=String(Math.floor(callSecs/60)).padStart(2,'0');
+        const ss=String(callSecs%60).padStart(2,'0');
+        if(callOn)document.getElementById('cst').textContent=mm+':'+ss;
+      },1000);
+      setTimeout(cListen,600);
+    })
+    .catch(e=>{
+      document.getElementById('cst').textContent='Mic Blocked ❌';
+      document.getElementById('ccap').innerHTML=`
+        <div style="text-align:center;padding:0 12px">
+          <div style="font-size:26px;margin-bottom:8px">🚫</div>
+          <div style="color:#ff8080;font-size:13px;font-weight:700;margin-bottom:8px">Microphone is Blocked!</div>
+          <div style="color:var(--sub);font-size:12px;line-height:1.8">
+            <b style="color:#fff">On Computer:</b><br>
+            Click 🔒 in address bar → Microphone → Allow → Refresh<br><br>
+            <b style="color:#fff">On Mobile:</b><br>
+            Settings → Browser → Microphone → Allow
+          </div>
+          <button onclick="endCall()" style="margin-top:14px;background:var(--red);border:none;
+            border-radius:10px;padding:8px 22px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;">
+            Close
+          </button>
+        </div>`;
+    });
 }
 
 function cListen(){
   if(!callOn||aiSpk||muted)return;
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR)return;
-  const r=new SR();r.continuous=false;r.interimResults=false;
+  if(!SR){
+    document.getElementById('ccap').innerHTML='<div class="capbox ai">❌ Voice not supported. Use Chrome or Edge.</div>';
+    return;
+  }
+
+  // On computer, explicitly check mic permission first
+  navigator.permissions.query({name:'microphone'}).then(p=>{
+    if(p.state==='denied'){
+      document.getElementById('ccap').innerHTML=
+        '<div class="capbox ai">❌ Microphone blocked! Click the 🔒 lock icon in address bar → Allow microphone → refresh</div>';
+      return;
+    }
+    doListen();
+  }).catch(()=>doListen()); // if permissions API not supported just try anyway
+}
+
+function doListen(){
+  if(!callOn||aiSpk||muted)return;
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const r=new SR();
+  r.continuous=false;r.interimResults=false;r.lang='en-US';
   cRecog=r;
+
   r.onstart=()=>{
     if(!callOn)return;
-    document.getElementById('ccap').innerHTML='<div class="lind"><div class="ldot"></div><span style="color:#aaa;font-size:13px">Listening...</span></div>';
+    document.getElementById('ccap').innerHTML=
+      '<div class="lind"><div class="ldot"></div><span style="color:#aaa;font-size:13px">Listening... speak now</span></div>';
   };
+
   r.onresult=async e=>{
     if(!callOn)return;
     const said=e.results[0][0].transcript;
@@ -609,7 +642,8 @@ function cListen(){
           aiSpk=false;
           document.getElementById('r1').classList.remove('p');
           document.getElementById('r2').classList.remove('p');
-          document.getElementById('ccap').innerHTML='<span style="color:var(--sub);font-size:13px">Say something...</span>';
+          document.getElementById('ccap').innerHTML=
+            '<span style="color:var(--sub);font-size:13px">Say something...</span>';
           if(callOn)setTimeout(cListen,500);
         });
       }
@@ -620,9 +654,34 @@ function cListen(){
       if(callOn)setTimeout(cListen,800);
     }
   };
-  r.onerror=()=>{if(callOn&&!aiSpk)setTimeout(cListen,1000);};
-  r.onend=()=>{if(callOn&&!aiSpk)setTimeout(cListen,400);};
-  try{r.start();}catch{}
+
+  r.onnomatch=()=>{
+    document.getElementById('ccap').innerHTML=
+      '<span style="color:var(--sub);font-size:13px">Didn\'t catch that, try again...</span>';
+    if(callOn&&!aiSpk)setTimeout(cListen,600);
+  };
+
+  r.onerror=e=>{
+    if(e.error==='not-allowed'||e.error==='permission-denied'){
+      document.getElementById('ccap').innerHTML=
+        '<div class="capbox ai">❌ Microphone blocked! Click the 🔒 lock in address bar → Allow microphone → refresh page</div>';
+      return;
+    }
+    if(e.error==='network'){
+      document.getElementById('ccap').innerHTML=
+        '<div class="capbox ai">❌ Network error. Check your internet connection.</div>';
+      return;
+    }
+    if(callOn&&!aiSpk)setTimeout(cListen,1000);
+  };
+
+  r.onend=()=>{
+    if(callOn&&!aiSpk)setTimeout(cListen,400);
+  };
+
+  try{r.start();}catch(e){
+    if(callOn&&!aiSpk)setTimeout(cListen,1000);
+  }
 }
 
 function endCall(){
